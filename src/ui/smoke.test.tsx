@@ -5,13 +5,17 @@ import { useStore } from '@/store';
 
 describe('UI smoke test (engine ↔ store ↔ UI)', () => {
   beforeEach(() => {
-    useStore.setState({ screen: 'menu', game: null, selectedCard: null });
+    useStore.setState({ screen: 'title', game: null, selectedCard: null });
   });
 
-  it('renders the menu and can start a run into the board', () => {
+  it('renders the title, goes to crew select, and starts a run', () => {
     render(<App />);
-    // Menu title is present.
+    // Title screen is present.
     expect(screen.getByText(/Last Light/i)).toBeInTheDocument();
+
+    // Title → crew select.
+    fireEvent.click(screen.getByRole('button', { name: /New Run/i }));
+    expect(screen.getByText(/Assemble your coven/i)).toBeInTheDocument();
 
     // The Trapper is selected by default; start the run.
     fireEvent.click(screen.getByRole('button', { name: /Into the Dark/i }));
