@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-night, #0b0e1a);
+  color: var(--color-bone, #ece6d6);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The dead sun, bleeding at the edges of the world. */
+.bg-nightfall {
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(194, 54, 47, 0.18), transparent 60%),
+    radial-gradient(80% 60% at 80% 110%, rgba(31, 163, 152, 0.08), transparent 60%),
+    var(--color-night, #0b0e1a);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
