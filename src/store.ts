@@ -7,7 +7,7 @@ import { createGame, createRunConfig, applyAction, beginRun } from '@engine/inde
 import { cardsById } from '@data/cards';
 import { audio } from './audio/audio';
 
-export type Screen = 'menu' | 'play';
+export type Screen = 'title' | 'crew' | 'play';
 
 interface Store {
   screen: Screen;
@@ -15,6 +15,8 @@ interface Store {
   selectedCard: string | null;
   hoveredCard: string | null;
 
+  goTitle: () => void;
+  goCrew: () => void;
   newRun: (seed: string, crew: string[], lordCount?: number) => void;
   toMenu: () => void;
   dispatch: (action: Action) => void;
@@ -36,10 +38,20 @@ function reactAudio(before: GameState | null, after: GameState): void {
 }
 
 export const useStore = create<Store>((set, get) => ({
-  screen: 'menu',
+  screen: 'title',
   game: null,
   selectedCard: null,
   hoveredCard: null,
+
+  goTitle: () => {
+    audio.playMusic('menu');
+    set({ screen: 'title', game: null, selectedCard: null });
+  },
+
+  goCrew: () => {
+    audio.playMusic('menu');
+    set({ screen: 'crew', game: null, selectedCard: null });
+  },
 
   newRun: (seed, crew, lordCount = 3) => {
     const run = createRunConfig({ seed, crew, lordCount });
@@ -50,7 +62,7 @@ export const useStore = create<Store>((set, get) => ({
 
   toMenu: () => {
     audio.playMusic('menu');
-    set({ screen: 'menu', game: null, selectedCard: null });
+    set({ screen: 'title', game: null, selectedCard: null });
   },
 
   dispatch: (action) => {
