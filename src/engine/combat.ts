@@ -177,6 +177,8 @@ function applyEffect(ctx: EffectContext, effect: Effect): void {
         hpDealt += applyStake(target, amount, { bypassStagger: effect.bypassStagger || nightborn(hunter) });
       }
 
+      // Colette: her rolled Light also burns a staggered vampire for 1 Stake.
+      if (lightDealt > 0) lightBurnsStaggeredPassive(ctx, target);
       onDamageDealt(ctx, target, hpDealt);
       handleLifesteal(hunter, effect, hpDealt, roll);
 
