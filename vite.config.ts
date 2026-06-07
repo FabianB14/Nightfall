@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
+  // Served at the repo subpath on GitHub Pages (e.g. /Nightfall/). The deploy workflow
+  // sets VITE_BASE from the repo name; dev and other hosts default to '/'.
+  base: process.env.VITE_BASE ?? '/',
   plugins: [react()],
   resolve: {
     alias: {

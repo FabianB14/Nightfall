@@ -68,11 +68,17 @@ function silent(): boolean {
   return Howler.noAudio === true || typeof window === 'undefined';
 }
 
+// Respect Vite's base path so audio resolves under a repo subpath on Pages.
+const BASE = import.meta.env.BASE_URL;
+function withBase(src: string): string {
+  return BASE + src.replace(/^\//, '');
+}
+
 function get(src: string, loop = false): Howl {
   let howl = cache.get(src);
   if (!howl) {
     howl = new Howl({
-      src: [src],
+      src: [withBase(src)],
       loop,
       html5: loop,
       volume: settings.volume,
