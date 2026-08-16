@@ -19,7 +19,7 @@ import { characters, charactersById } from './characters';
 import { enemies, enemiesById } from './enemies';
 import { lords, eclipseHeart, lordsById } from './lords';
 import { mutations, mutationsById } from './mutations';
-import { districts, districtsById } from './districts';
+import { districts, finaleDistrict, districtsById } from './districts';
 import { events, eventsById } from './events';
 import { threatCards, threatCardsById, buildThreatDeck } from './threatDeck';
 import { objectives, objectivesById } from './objectives';
@@ -38,6 +38,7 @@ export {
   mutations,
   mutationsById,
   districts,
+  finaleDistrict,
   districtsById,
   events,
   eventsById,
@@ -73,7 +74,7 @@ export function validateContent(): void {
   parseAll(enemySchema, enemies, 'enemy');
   parseAll(lordSchema, [...lords, eclipseHeart], 'lord');
   parseAll(mutationSchema, mutations, 'mutation');
-  parseAll(districtSchema, districts, 'district');
+  parseAll(districtSchema, [...districts, finaleDistrict], 'district');
   parseAll(eventSchema, events, 'event');
   parseAll(threatCardSchema, threatCards, 'threatCard');
   parseAll(objectiveSchema, objectives, 'objective');
@@ -109,7 +110,7 @@ export function validateContent(): void {
   }
 
   // District zone adjacency is symmetric and references real zones.
-  for (const d of districts) {
+  for (const d of [...districts, finaleDistrict]) {
     const ids = new Set(d.zones.map((z) => z.id));
     for (const z of d.zones) {
       for (const adj of z.adjacent) {

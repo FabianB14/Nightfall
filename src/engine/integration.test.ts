@@ -22,10 +22,14 @@ describe('run setup (the "every game is different" engine)', () => {
 
   it('draws one mutation, district and objective per Lord', () => {
     const cfg = createRunConfig({ seed: 'mut', crew: ['trapper'], lordCount: 3 });
-    expect(cfg.lordSequence).toHaveLength(3);
-    expect(cfg.districts).toHaveLength(3);
+    // 3 drawn Lords + the Eclipse Heart finale; mutations/objectives only for the regular Lords.
+    expect(cfg.lordSequence).toHaveLength(4);
+    expect(cfg.lordSequence[3]).toBe('eclipse_heart');
+    expect(cfg.districts).toHaveLength(4);
+    expect(cfg.districts[3]).toBe('drowned_cathedral');
     expect(Object.keys(cfg.mutations)).toHaveLength(3);
     expect(Object.keys(cfg.objectives)).toHaveLength(3);
+    expect(cfg.events).toHaveLength(3);
   });
 });
 
@@ -41,6 +45,7 @@ function pickTarget(state: GameState, hunter: GameState['hunters'][number]): Tar
 
 function botTurn(state: GameState): Action[] {
   const actions: Action[] = [];
+  if (state.phase === 'interlude') return [{ t: 'nextDistrict' }];
   const hunter = state.hunters.find((h) => h.id === state.activeHunter);
   if (!hunter) return actions;
   // Greedy: try to play every card in hand (the reducer rejects anything unaffordable),
@@ -82,23 +87,103 @@ describe('a district-into-Lord sequence resolves headlessly', () => {
     expect(a.bloodmoon).toBe(b.bloodmoon);
   });
 
-  it('clears the final Lord and wins the run (light → stagger → stake → kill)', () => {
-    // Drive the full win path deterministically: a staggered, nearly-dead Lord finished
-    // with the Trapper's Silver Shot, transitioning the run to "won".
+  it('clearing a Lord opens the interlude with a drawn Event, then the next district', () => {
+    // Kill the (only) regular Lord: the run pauses at the interlude instead of ending,
+    // reveals the drawn Event, and nextDistrict leads into the Eclipse Heart finale.
     const run = createRunConfig({ seed: 'kill', crew: ['trapper'], lordCount: 1 });
     let state = beginRun(createGame('kill', run));
     const lord = state.activeLord!;
     state = {
       ...state,
       enemies: [],
-      activeLord: { ...lord, hp: 4, light: lord.staggerThreshold, staggered: true },
+      // vents/mutations stripped so the stake lands on the Lord itself
+      activeLord: { ...lord, hp: 4, light: lord.staggerThreshold, staggered: true, vents: undefined, mutationId: undefined },
       hunters: [{ ...state.hunters[0], hand: ['silver_shot', 'silver_shot'], resource: 3, actionsLeft: 2 }],
     };
 
     state = applyAction(state, { t: 'playCard', hunter: 'trapper', card: 'silver_shot', targets: [{ kind: 'lord' }] });
     expect(state.activeLord!.hp).toBe(2); // +2 Stake landed on the staggered Lord
     state = applyAction(state, { t: 'playCard', hunter: 'trapper', card: 'silver_shot', targets: [{ kind: 'lord' }] });
+
+    expect(state.phase).toBe('interlude');
+    expect(state.pendingEventId).toBe(run.events[0]);
+    expect(state.activeLord).toBeNull();
+
+    state = applyAction(state, { t: 'nextDistrict' });
+    if (state.phase !== 'lost') {
+      // (The Moon Lurches can theoretically end a doomed run here; not with this seed.)
+      expect(state.phase).toBe('crew');
+      expect(state.activeLord!.defId).toBe('eclipse_heart');
+      expect(state.activeLord!.wards).toBeDefined();
+      expect(state.zones.map((z) => z.id)).toContain('sanctum');
+    }
+  });
+
+  it('the Eclipse Heart: light exposes a Ward, stakes break it, all Wards down wins', () => {
+    const run = createRunConfig({ seed: 'finale', crew: ['trapper'], lordCount: 1 });
+    let state = beginRun(createGame('finale', run));
+    // Kill the regular Lord with an action so no enemy turn can heal it back.
+    const lord0 = state.activeLord!;
+    state = {
+      ...state,
+      enemies: [],
+      activeLord: { ...lord0, hp: 2, light: lord0.staggerThreshold, staggered: true, vents: undefined, mutationId: undefined },
+      hunters: [{ ...state.hunters[0], hand: ['silver_shot'], resource: 3, actionsLeft: 2 }],
+    };
+    state = applyAction(state, { t: 'playCard', hunter: 'trapper', card: 'silver_shot', targets: [{ kind: 'lord' }] });
+    expect(state.phase).toBe('interlude');
+    state = applyAction(state, { t: 'nextDistrict' });
+    if (state.phase === 'lost') return; // a doomed-run bane; not with this seed
+    expect(state.activeLord!.defId).toBe('eclipse_heart');
+
+    // Weaken the Wards so two Silver Shots per Ward finish the job deterministically.
+    state = structuredClone(state);
+    state.activeLord!.wards = { ...state.activeLord!.wards!, hp: [2, 2, 2], exposed: null };
+    state.activeLord!.hp = 6;
+    state.enemies = [];
+    const heartZone = state.activeLord!.zone;
+
+    // No Ward exposed → stake damage is ignored entirely.
+    state.hunters[0] = { ...state.hunters[0], hand: ['silver_shot', 'silver_shot', 'silver_shot'], resource: 3, actionsLeft: 2, zone: heartZone };
+    const before = state.activeLord!.hp;
+    // Each Silver Shot first lights (exposing/rotating a Ward), then stakes the exposed Ward.
+    state = applyAction(state, { t: 'playCard', hunter: 'trapper', card: 'silver_shot', targets: [{ kind: 'lord' }] });
+    expect(state.activeLord!.hp).toBe(before - 2); // one 2-HP Ward shattered
+    expect(state.activeLord!.wards!.exposed).toBeNull(); // exposure closes when a Ward breaks
+
+    state = applyAction(state, { t: 'playCard', hunter: 'trapper', card: 'silver_shot', targets: [{ kind: 'lord' }] });
+    expect(state.activeLord!.hp).toBe(before - 4);
+
+    // Third shot needs actions again — give them back and finish it.
+    state = structuredClone(state);
+    state.hunters[0].actionsLeft = 2;
+    state.hunters[0].resource = 1;
+    state = applyAction(state, { t: 'playCard', hunter: 'trapper', card: 'silver_shot', targets: [{ kind: 'lord' }] });
     expect(state.phase).toBe('won');
+  });
+
+  it('between-district recovery is not a full heal, and downed hunters stand at half HP', () => {
+    const run = createRunConfig({ seed: 'recover', crew: ['trapper', 'pere_ezra'], lordCount: 1 });
+    let state = beginRun(createGame('recover', run));
+    const lord0 = state.activeLord!;
+    state = {
+      ...state,
+      enemies: [],
+      activeLord: { ...lord0, hp: 2, light: lord0.staggerThreshold, staggered: true, vents: undefined, mutationId: undefined },
+    };
+    state.hunters[0] = { ...state.hunters[0], hp: 2, hand: ['silver_shot'], resource: 3, actionsLeft: 2 };
+    state.hunters[1] = { ...state.hunters[1], hp: 0, downed: true };
+    state = applyAction(state, { t: 'playCard', hunter: 'trapper', card: 'silver_shot', targets: [{ kind: 'lord' }] });
+    expect(state.phase).toBe('interlude');
+    state = applyAction(state, { t: 'nextDistrict' });
+    if (state.phase === 'lost') return; // a bane event can end a doomed run
+    const trapper = state.hunters.find((h) => h.id === 'trapper')!;
+    const ezra = state.hunters.find((h) => h.id === 'pere_ezra')!;
+    expect(ezra.downed).toBe(false);
+    // Stands at half HP, plus 3 if the Safe House boon happened to be drawn.
+    expect(ezra.hp).toBeGreaterThanOrEqual(Math.ceil(ezra.maxHp / 2));
+    // No free full heal unless the Safe House boon was drawn.
+    if (run.events[0] !== 'safe_house') expect(trapper.hp).toBeLessThan(trapper.maxHp);
   });
 
   it('the UV Rig keeps a Lord staggered across rounds (the stagger engine)', () => {
@@ -110,7 +195,8 @@ describe('a district-into-Lord sequence resolves headlessly', () => {
     state = {
       ...state,
       enemies: [],
-      hunters: [{ ...state.hunters[0], hand: ['uv_rig'], resource: 2, actionsLeft: 2, zone: lordZone }],
+      // Beefy HP so a (possibly Swift) Lord's reprisals can't down the solo Artisan mid-test.
+      hunters: [{ ...state.hunters[0], hp: 30, maxHp: 30, hand: ['uv_rig'], resource: 2, actionsLeft: 2, zone: lordZone }],
     };
     state = applyAction(state, {
       t: 'playCard',

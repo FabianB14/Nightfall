@@ -64,12 +64,33 @@ function markBonus(target: Combatant): number {
 export function applyLight(target: Combatant, amount: number): number {
   const total = amount + markBonus(target);
   if (total <= 0) return 0;
+
+  // Eclipse Heart: light doesn't stagger — it rotates which Ward is Exposed (§8 finale).
+  if ('wards' in target && target.wards) {
+    rotateWard(target.wards);
+    return total;
+  }
+
   target.light += total;
   const st = target.staggerThreshold;
   if (st !== null && st !== undefined && target.light >= st) {
     target.staggered = true;
   }
   return total;
+}
+
+/** Expose the next unbroken Ward (cycling past the currently exposed one). */
+function rotateWard(wards: { hp: number[]; exposed: number | null }): void {
+  const n = wards.hp.length;
+  const from = wards.exposed ?? -1;
+  for (let step = 1; step <= n; step++) {
+    const i = (from + step) % n;
+    if (wards.hp[i] > 0) {
+      wards.exposed = i;
+      return;
+    }
+  }
+  wards.exposed = null; // all broken
 }
 
 /**
@@ -83,8 +104,34 @@ export function applyStake(
 ): number {
   const total = amount + markBonus(target);
   if (total <= 0) return 0;
+
+  // Eclipse Heart: no stagger track — only the currently Exposed Ward takes damage.
+  if ('wards' in target && target.wards) {
+    const wards = target.wards;
+    if (wards.exposed === null || wards.hp[wards.exposed] <= 0) return 0;
+    const dealt = Math.min(wards.hp[wards.exposed], total);
+    wards.hp[wards.exposed] -= dealt;
+    if (wards.hp[wards.exposed] <= 0) wards.exposed = null; // the Ward shatters; re-light to expose the next
+    target.hp = wards.hp.reduce((a, b) => a + b, 0); // HP mirrors the surviving Wards
+    return dealt;
+  }
+
   const vampire = isVampire(target);
   if (vampire && !target.staggered && !opts.bypassStagger) return 0; // ignored
+
+  // Foundry Lord: staked damage breaks the Heat Vents before it can touch the Lord (§8).
+  if ('vents' in target && target.vents && target.vents.some((v) => v > 0)) {
+    let remaining = total;
+    let dealt = 0;
+    for (let i = 0; i < target.vents.length && remaining > 0; i++) {
+      const chip = Math.min(target.vents[i], remaining);
+      target.vents[i] -= chip;
+      remaining -= chip;
+      dealt += chip;
+    }
+    return dealt;
+  }
+
   const before = target.hp;
   target.hp = Math.max(0, target.hp - total);
   return before - target.hp;

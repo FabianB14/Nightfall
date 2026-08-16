@@ -4,6 +4,7 @@
 import type { EnemyState, GameState, HunterState, LordState } from './types';
 import { Rng } from './rng';
 import { threatCardsById } from '@data/threatDeck';
+import { mutationsById } from '@data/mutations';
 import { makeEnemy } from './createGame';
 
 // ----------------------------------------------------------------------------
@@ -193,16 +194,52 @@ function enemyAttackDamage(enemy: EnemyState): number {
   }
 }
 
+/** Effect ids of the Lord's mutation(s) — one from the run draw, maybe one from an event. */
+export function lordMutationEffects(lord: LordState): string[] {
+  return [lord.mutationId, lord.extraMutationId]
+    .filter((x): x is string => !!x)
+    .map((id) => mutationsById[id]?.effectId ?? id);
+}
+
+/** Heal the Lord; on the Eclipse Heart this mends the weakest surviving Ward instead. */
+function healLord(lord: LordState, amount: number): void {
+  if (lordHexed(lord)) return;
+  if (lord.wards) {
+    const capacity = Math.ceil(lord.maxHp / lord.wards.hp.length);
+    const alive = lord.wards.hp
+      .map((hp, i) => ({ hp, i }))
+      .filter((w) => w.hp > 0 && w.hp < capacity)
+      .sort((a, b) => a.hp - b.hp);
+    if (alive.length > 0) lord.wards.hp[alive[0].i] = Math.min(capacity, alive[0].hp + amount);
+    lord.hp = lord.wards.hp.reduce((a, b) => a + b, 0);
+    return;
+  }
+  lord.hp = Math.min(lord.maxHp, lord.hp + amount);
+}
+
+/** Per-enemy-round mutation upkeep (Thrallmaster, Veiled in Shadow). */
+export function lordMutationUpkeep(state: GameState, lord: LordState): void {
+  const effects = lordMutationEffects(lord);
+  if (effects.includes('spawn_thrall')) {
+    state.enemies.push(makeEnemy('thrall', lord.zone));
+    state.log.push(`${lord.name}'s thralls crawl from the dark.`);
+  }
+  if (effects.includes('heal_unless_lit')) {
+    const litHere = state.zones.find((z) => z.id === lord.zone)?.terrain === 'lit';
+    if (!litHere) healLord(lord, 2);
+  }
+}
+
 /** Resolve a single Lord activation: gimmick, then attack the nearest hunter. */
 export function lordAct(state: GameState, rng: Rng): void {
   const lord = state.activeLord;
   if (!lord) return;
   lordGimmick(state, lord, rng);
 
+  const stationary = lord.gimmickId === 'rotating_wards'; // the Heart never moves
   const target = nearestHunter(state, lord.zone);
   if (target) {
-    // Lord advances one step then strikes.
-    if (lord.zone !== target.zone) lord.zone = stepToward(state, lord.zone, target.zone);
+    if (!stationary && lord.zone !== target.zone) lord.zone = stepToward(state, lord.zone, target.zone);
     if (zoneDistance(state, lord.zone, target.zone) <= 1) {
       const dmg = lord.attackDamage + (lord.enraged ? 1 : 0);
       damageHunter(state, target, dmg, true);
@@ -212,12 +249,19 @@ export function lordAct(state: GameState, rng: Rng): void {
 }
 
 function lordGimmick(state: GameState, lord: LordState, rng: Rng): void {
+  if (lord.gimmickId === 'rotating_wards') {
+    eclipseHeartTurn(state, lord, rng);
+    return;
+  }
+  runGimmick(state, lord, lord.gimmickId, rng);
+}
+
+/** One named gimmick, reusable so the Eclipse Heart can remix the Lords you faced. */
+function runGimmick(state: GameState, lord: LordState, gimmickId: string, rng: Rng): void {
   const litHere = state.zones.find((z) => z.id === lord.zone)?.terrain === 'lit';
-  switch (lord.gimmickId) {
+  switch (gimmickId) {
     case 'heal_in_shadow':
-      if (!litHere && !lordHexed(lord)) {
-        lord.hp = Math.min(lord.maxHp, lord.hp + (lord.enraged ? 3 : 2));
-      }
+      if (!litHere) healLord(lord, lord.enraged ? 3 : 2);
       break;
     case 'spawn_stalkers': {
       const n = lord.enraged ? 2 : 1;
@@ -231,9 +275,11 @@ function lordGimmick(state: GameState, lord: LordState, rng: Rng): void {
       break;
     }
     case 'shed_light':
-      lord.light = 0;
-      lord.staggered = false;
-      lord.hp = Math.min(lord.maxHp, lord.hp + (lord.enraged ? 3 : 2));
+      if (!lord.wards) {
+        lord.light = 0;
+        lord.staggered = false;
+      }
+      healLord(lord, lord.enraged ? 3 : 2);
       break;
     case 'flood_zones': {
       const n = lord.enraged ? 2 : 1;
@@ -242,10 +288,27 @@ function lordGimmick(state: GameState, lord: LordState, rng: Rng): void {
       break;
     }
     case 'heat_vents':
-    case 'rotating_wards':
-      // Modeled via objective/ward state in a later milestone; no per-turn heal here.
+      // The vents themselves live on LordState; enrage rebuilds one (see reducer).
       break;
   }
+}
+
+/**
+ * The Eclipse Heart's enemy turn (§8 finale): run one remixed Lord gimmick per phase
+ * (phase = 1 + broken Wards), then close the Exposed Ward — the crew must light the
+ * arena again. From phase 2 on, exposure persists ("each phase exposes Wards faster").
+ */
+function eclipseHeartTurn(state: GameState, lord: LordState, rng: Rng): void {
+  const wards = lord.wards;
+  if (!wards) return;
+  const broken = wards.hp.filter((h) => h <= 0).length;
+  const phase = Math.min(3, 1 + broken);
+  const remixable = wards.remixed.filter((g) => g !== 'heat_vents' && g !== 'rotating_wards');
+  for (const gimmickId of remixable.slice(0, phase)) {
+    runGimmick(state, lord, gimmickId, rng);
+  }
+  if (phase === 1) wards.exposed = null;
+  else if (wards.exposed !== null && wards.hp[wards.exposed] <= 0) wards.exposed = null;
 }
 
 function lordHexed(lord: LordState): boolean {

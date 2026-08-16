@@ -23,6 +23,7 @@ interface Store {
   selectCard: (cardId: string | null) => void;
   setHovered: (cardId: string | null) => void;
   endTurn: () => void;
+  nextDistrict: () => void;
   moveTo: (zoneId: string) => void;
   playSelected: (targets: TargetRef[]) => void;
 }
@@ -33,8 +34,13 @@ function reactAudio(before: GameState | null, after: GameState): void {
     audio.playSfx('dice_roll');
   }
   // Scene music follows the situation.
-  if (after.activeLord) audio.playMusic('boss');
-  else audio.playMusic('combat');
+  if (after.phase === 'interlude' || after.phase === 'won' || after.phase === 'lost') {
+    audio.playMusic('menu');
+  } else if (after.activeLord) {
+    audio.playMusic('boss');
+  } else {
+    audio.playMusic('combat');
+  }
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -84,6 +90,12 @@ export const useStore = create<Store>((set, get) => ({
     const game = get().game;
     if (!game?.activeHunter) return;
     get().dispatch({ t: 'endTurn', hunter: game.activeHunter });
+  },
+
+  nextDistrict: () => {
+    const game = get().game;
+    if (game?.phase !== 'interlude') return;
+    get().dispatch({ t: 'nextDistrict' });
   },
 
   moveTo: (zoneId) => {

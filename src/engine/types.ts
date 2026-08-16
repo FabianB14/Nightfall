@@ -300,7 +300,17 @@ export interface LordState {
   gimmickId: string;
   attackDamage: number;
   mutationId?: string;
+  /** Second mutation layered on by the "Blood in the Water" event. */
+  extraMutationId?: string;
   mark: { bonus: number; preventHeal: boolean } | null;
+  /**
+   * Eclipse Heart only: 3 rotating Wards replace the stagger track. Light into the
+   * arena exposes/rotates a Ward; only the exposed Ward takes damage. `remixed` holds
+   * the gimmick ids of the Lords faced this run; one more activates per phase.
+   */
+  wards?: { hp: number[]; exposed: number | null; remixed: string[] };
+  /** Foundry Lord only: Heat Vent HP — stake damage breaks vents before the Lord. */
+  vents?: number[];
 }
 
 export interface SummonState {
@@ -323,15 +333,17 @@ export interface GadgetState {
   data?: Record<string, number>;
 }
 
-export type GamePhase = 'crew' | 'surge' | 'threat' | 'bloodmoon' | 'won' | 'lost';
+export type GamePhase = 'crew' | 'surge' | 'threat' | 'bloodmoon' | 'interlude' | 'won' | 'lost';
 
 export interface RunConfig {
-  lordSequence: string[]; // ordered lord def ids
+  lordSequence: string[]; // ordered lord def ids; always ends with 'eclipse_heart'
   mutations: Record<string, string>; // lordId -> mutationId
-  districts: string[]; // ordered district def ids (one per lord)
+  districts: string[]; // ordered district def ids (one per lord + the finale)
   objectives: Record<string, string>; // lordId -> objective id
-  events: string[]; // event ids drawn between districts
+  events: string[]; // event ids drawn between districts (one per slain regular Lord)
   crew: string[]; // character ids
+  /** Optional saved-deck overrides per character (Deck Builder, §9). */
+  decks?: Record<string, string[]>;
 }
 
 export interface GameState {
@@ -354,6 +366,8 @@ export interface GameState {
   run: RunConfig;
   districtIndex: number; // which lord/district we're on
   objectiveId: string | null;
+  /** Event drawn at the interlude between districts; applied by the nextDistrict action. */
+  pendingEventId: string | null;
   pendingDice: DieFace[]; // last roll, surfaced for the UI
   log: string[];
 }
@@ -377,4 +391,5 @@ export type Action =
   | { t: 'endTurn'; hunter: string }
   | { t: 'useUltimate'; hunter: string; targets: TargetRef[] }
   | { t: 'reactCard'; hunter: string; card: string; targets: TargetRef[] }
-  | { t: 'advancePhase' }; // engine-driven: resolve surge/threat/bloodmoon, start next round
+  | { t: 'advancePhase' } // engine-driven: resolve surge/threat/bloodmoon, start next round
+  | { t: 'nextDistrict' }; // from the interlude: apply the drawn Event, enter the next district

@@ -83,6 +83,23 @@ export const districts: DistrictDef[] = [
   },
 ];
 
+/**
+ * The finale arena — the drowned cathedral where the Eclipse Heart sits. Not part of
+ * the district draw pool; every run ends here (§2, §8 of the docs).
+ */
+export const finaleDistrict: DistrictDef = {
+  id: 'drowned_cathedral',
+  name: 'The Drowned Cathedral',
+  zones: [
+    { id: 'narthex', name: 'The Narthex', terrain: 'lit', adjacent: ['flooded_nave', 'gallery'] },
+    { id: 'flooded_nave', name: 'Flooded Nave', terrain: 'flooded', adjacent: ['narthex', 'sanctum'] },
+    { id: 'gallery', name: 'Bone Gallery', terrain: 'shadow', adjacent: ['narthex', 'sanctum'] },
+    { id: 'sanctum', name: 'The Sanctum', terrain: 'shadow', adjacent: ['flooded_nave', 'gallery'] },
+  ],
+  objectivePool: [],
+  spawnZones: ['sanctum', 'gallery'],
+};
+
 export const districtsById: Record<string, DistrictDef> = Object.fromEntries(
-  districts.map((d) => [d.id, d]),
+  [...districts, finaleDistrict].map((d) => [d.id, d]),
 );

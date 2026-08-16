@@ -20,17 +20,27 @@ import { districtsById } from '@data/districts';
 
 const archetypesById = Object.fromEntries(archetypes.map((a) => [a.id, a]));
 
-/** Build a hunter's ~10-card deck: archetype spine + inherent + personals + ultimate. */
-export function buildDeck(characterId: string): string[] {
+/**
+ * Build a hunter's ~10-card deck: archetype spine + inherent + personals + ultimate.
+ * A saved deck (Deck Builder, §9) overrides the personal slots; spine/inherent/ultimate
+ * are always locked in.
+ */
+export function buildDeck(characterId: string, personalOverride?: string[]): string[] {
   const ch = charactersById[characterId];
   if (!ch) throw new Error(`Unknown character: ${characterId}`);
   const archetype = archetypesById[ch.archetype];
-  return [...archetype.spine, ch.inherent, ...ch.personal, ch.ultimate];
+  const personals = personalOverride && personalOverride.length > 0 ? personalOverride : ch.personal;
+  return [...archetype.spine, ch.inherent, ...personals, ch.ultimate];
 }
 
-function makeHunter(rng: Rng, characterId: string, startZone: string): HunterState {
+function makeHunter(
+  rng: Rng,
+  characterId: string,
+  startZone: string,
+  personalOverride?: string[],
+): HunterState {
   const ch = charactersById[characterId];
-  const deck = rng.shuffle(buildDeck(characterId));
+  const deck = rng.shuffle(buildDeck(characterId, personalOverride));
   const hunter: HunterState = {
     id: characterId,
     characterId,
@@ -84,17 +94,23 @@ export function makeEnemy(defId: 'thrall' | 'stalker' | 'brute' | 'cultist', zon
   };
 }
 
-function makeLord(lordId: string, mutationId: string | undefined, zone: string): LordState {
+function makeLord(
+  lordId: string,
+  mutationId: string | undefined,
+  zone: string,
+  extraMutationId?: string,
+): LordState {
   const def = lordsById[lordId];
   let hp = def.hp;
   let st = def.staggerThreshold;
   // Apply mutation effects that change baseline stats (others are handled at runtime).
-  if (mutationId) {
-    const mut = mutationsById[mutationId];
+  for (const mid of [mutationId, extraMutationId]) {
+    if (!mid) continue;
+    const mut = mutationsById[mid];
     if (mut?.effectId === 'hp_plus_50') hp = Math.round(hp * 1.5);
     if (mut?.effectId === 'stagger_plus_1') st += 1;
   }
-  return {
+  const lord: LordState = {
     defId: lordId,
     name: def.name,
     zone,
@@ -108,8 +124,12 @@ function makeLord(lordId: string, mutationId: string | undefined, zone: string):
     gimmickId: def.gimmickId,
     attackDamage: def.attackDamage,
     mutationId,
+    extraMutationId,
     mark: null,
   };
+  // The Foundry Lord hides behind two 3-HP Heat Vents (§8): staked damage breaks vents first.
+  if (def.gimmickId === 'heat_vents') lord.vents = [3, 3];
+  return lord;
 }
 
 function makeZones(districtId: string): Zone[] {
@@ -137,7 +157,7 @@ export function createGame(seed: string, run: RunConfig): GameState {
   const rng = new Rng(seed, 1_000_000); // offset cursor so run-roll and game-roll streams differ
   const districtId = run.districts[0];
   const start = entranceZone(districtId);
-  const hunters = run.crew.map((id) => makeHunter(rng, id, start));
+  const hunters = run.crew.map((id) => makeHunter(rng, id, start, run.decks?.[id]));
 
   const state: GameState = {
     seed,
@@ -159,6 +179,7 @@ export function createGame(seed: string, run: RunConfig): GameState {
     run,
     districtIndex: 0,
     objectiveId: run.objectives[run.lordSequence[0]] ?? null,
+    pendingEventId: null,
     pendingDice: [],
     log: [],
   };
@@ -172,7 +193,14 @@ export function createGame(seed: string, run: RunConfig): GameState {
  * Load the board for district index `i`: zones, the Lord (with mutation), an opening wave,
  * and a freshly shuffled Threat Deck. Hunters are repositioned to the entrance.
  */
-export function setupDistrict(state: GameState, i: number, rng: Rng): void {
+export interface DistrictSetupOpts {
+  /** Cultist Ambush event: extra Cultists in the opening wave. */
+  extraCultists?: number;
+  /** Blood in the Water event: the Lord starts with a second Mutation. */
+  extraMutationId?: string;
+}
+
+export function setupDistrict(state: GameState, i: number, rng: Rng, opts: DistrictSetupOpts = {}): void {
   const districtId = state.run.districts[i];
   const lordId = state.run.lordSequence[i];
   const start = entranceZone(districtId);
@@ -191,11 +219,26 @@ export function setupDistrict(state: GameState, i: number, rng: Rng): void {
   // Place the Lord at a spawn zone (the darkest, deepest one).
   const district = districtsById[districtId];
   const lordZone = district.spawnZones[district.spawnZones.length - 1];
-  state.activeLord = makeLord(lordId, state.run.mutations[lordId], lordZone);
+  state.activeLord = makeLord(lordId, state.run.mutations[lordId], lordZone, opts.extraMutationId);
+
+  // The Eclipse Heart finale: 3 rotating Wards instead of a stagger track, remixing
+  // the gimmicks of the Lords faced this run (§8 of cards-and-enemies.md).
+  if (lordId === 'eclipse_heart') {
+    const faced = state.run.lordSequence.filter((id) => id !== 'eclipse_heart');
+    const wardHp = Math.max(1, Math.floor(state.activeLord.hp / 3));
+    state.activeLord.wards = {
+      hp: [wardHp, wardHp, state.activeLord.hp - wardHp * 2],
+      exposed: null,
+      remixed: faced.map((id) => lordsById[id].gimmickId),
+    };
+  }
 
   // Opening wave: a Stalker and a Brute at the spawn zones (§10 vertical-slice target).
   state.enemies.push(makeEnemy('stalker', district.spawnZones[0]));
   state.enemies.push(makeEnemy('brute', lordZone));
+  for (let c = 0; c < (opts.extraCultists ?? 0); c++) {
+    state.enemies.push(makeEnemy('cultist', district.spawnZones[c % district.spawnZones.length]));
+  }
 
   state.threatDeck = rng.shuffle(buildThreatDeck());
   state.threatDiscard = [];

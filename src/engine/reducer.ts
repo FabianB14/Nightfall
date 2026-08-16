@@ -10,10 +10,15 @@ import {
   resolveSurges,
   drawThreat,
   lordAct,
+  lordMutationEffects,
+  lordMutationUpkeep,
+  advanceBloodmoon,
   damageHunter,
   zoneDistance,
 } from './threat';
 import { setupDistrict } from './createGame';
+import { eventsById } from '@data/events';
+import { mutations } from '@data/mutations';
 
 const HAND_SIZE = 4;
 const ACTIONS_PER_TURN = 2;
@@ -26,6 +31,9 @@ export function applyAction(state: GameState, action: Action): GameState {
   if (state.phase === 'won' || state.phase === 'lost') return state;
   const next = clone(state);
   const rng = new Rng(next.seed, next.rngCursor);
+
+  // During the interlude only nextDistrict is legal.
+  if (next.phase === 'interlude' && action.t !== 'nextDistrict') return state;
 
   switch (action.t) {
     case 'playCard':
@@ -50,10 +58,13 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'advancePhase':
       runEnemyRound(next, rng);
       break;
+    case 'nextDistrict':
+      enterNextDistrict(next, rng);
+      break;
   }
 
   next.rngCursor = rng.cursor;
-  checkEndStates(next, rng);
+  checkEndStates(next);
   return next;
 }
 
@@ -177,7 +188,12 @@ export function runEnemyRound(state: GameState, rng: Rng): void {
 
   state.phase = 'threat';
   drawThreat(state, rng);
-  if (state.activeLord) lordAct(state, rng);
+  if (state.activeLord) {
+    // Mutation upkeep (Thrallmaster, Veiled in Shadow), then the Lord acts — twice if Swift.
+    lordMutationUpkeep(state, state.activeLord);
+    const activations = lordMutationEffects(state.activeLord).includes('act_twice') ? 2 : 1;
+    for (let i = 0; i < activations; i++) lordAct(state, rng);
+  }
   if (isLost(state)) return finalize(state, 'lost');
 
   state.phase = 'bloodmoon';
@@ -301,7 +317,7 @@ function finalize(state: GameState, phase: 'won' | 'lost'): void {
 }
 
 /** After any action: clear dead enemies, enrage/defeat the Lord, advance districts. */
-function checkEndStates(state: GameState, rng: Rng): void {
+function checkEndStates(state: GameState): void {
   if (state.phase === 'won' || state.phase === 'lost') return;
 
   // Remove dead common enemies.
@@ -313,10 +329,29 @@ function checkEndStates(state: GameState, rng: Rng): void {
     if (!lord.enraged && lord.hp <= lord.enrageAt && lord.hp > 0) {
       lord.enraged = true;
       state.log.push(`${lord.name} ENRAGES.`);
+      // Foundry Lord: enraging rebuilds one Heat Vent (§8).
+      if (lord.vents && lord.vents.every((v) => v <= 0)) {
+        lord.vents[0] = 3;
+        state.log.push('A Heat Vent grinds back to life.');
+      }
     }
     if (lord.hp <= 0) {
       state.log.push(`${lord.name} is destroyed!`);
-      advanceDistrict(state, rng);
+      const last = state.run.lordSequence.length - 1;
+      if (state.districtIndex >= last) {
+        finalize(state, 'won');
+        return;
+      }
+      // The district is cleared — pause at the interlude and reveal the drawn Event.
+      state.activeLord = null;
+      state.enemies = [];
+      state.summons = [];
+      state.gadgets = [];
+      state.phase = 'interlude';
+      state.activeHunter = null;
+      state.pendingEventId = state.run.events[state.districtIndex] ?? null;
+      const ev = state.pendingEventId ? eventsById[state.pendingEventId] : null;
+      if (ev) state.log.push(`On the road: ${ev.name}.`);
       return;
     }
   }
@@ -324,22 +359,62 @@ function checkEndStates(state: GameState, rng: Rng): void {
   if (isLost(state)) finalize(state, 'lost');
 }
 
-function advanceDistrict(state: GameState, rng: Rng): void {
-  const last = state.run.lordSequence.length - 1;
-  if (state.districtIndex >= last) {
-    finalize(state, 'won');
-    return;
+/** Leave the interlude: apply the drawn Event, then set up the next district. */
+function enterNextDistrict(state: GameState, rng: Rng): void {
+  if (state.phase !== 'interlude') return;
+  const ev = state.pendingEventId ? eventsById[state.pendingEventId] : null;
+  state.pendingEventId = null;
+
+  // Catching your breath between districts: the downed stand back up at half HP;
+  // no free full heal — that's what boons like the Safe House are for (§6.D).
+  for (const h of state.hunters) {
+    if (h.downed) {
+      h.downed = false;
+      h.hp = Math.ceil(h.maxHp / 2);
+    }
+    h.shield = 0;
   }
-  setupDistrict(state, state.districtIndex + 1, rng);
+
+  let handSize = HAND_SIZE;
+  const setupOpts: { extraCultists?: number; extraMutationId?: string } = {};
+
+  switch (ev?.effectId) {
+    case 'relic_draw':
+      handSize = HAND_SIZE + 1;
+      break;
+    case 'heal_crew_3':
+      for (const h of state.hunters) h.hp = Math.min(h.maxHp, h.hp + 3);
+      break;
+    case 'resource_all_1':
+      for (const h of state.hunters) if (h.resourceType) h.resource += 1;
+      break;
+    case 'spawn_cultists_2':
+      setupOpts.extraCultists = 2;
+      break;
+    case 'bloodmoon_2':
+      advanceBloodmoon(state, 2);
+      if (state.bloodmoon >= state.bloodmoonMax) return; // the moon fills; the run is lost
+      break;
+    case 'extra_mutation': {
+      // A second, different mutation for the next Lord — drawn from the seeded stream.
+      const nextLordId = state.run.lordSequence[state.districtIndex + 1];
+      const first = state.run.mutations[nextLordId];
+      const pool = mutations.filter((m) => m.id !== first);
+      setupOpts.extraMutationId = rng.pick(pool).id;
+      break;
+    }
+  }
+  if (ev) state.log.push(`${ev.name}: ${ev.text}`);
+
+  setupDistrict(state, state.districtIndex + 1, rng, setupOpts);
+
   // Fresh opening hands for the new district.
   for (const h of state.hunters) {
     h.discard.push(...h.hand);
     h.hand = [];
     h.deck = rng.shuffle([...h.deck, ...h.discard]);
     h.discard = [];
-    drawCards(state, h, HAND_SIZE, rng);
-    h.downed = false;
-    h.hp = h.maxHp;
+    drawCards(state, h, handSize, rng);
   }
   const first = getHunter(state, state.turnOrder[0]);
   if (first) startHunterTurn(state, first);

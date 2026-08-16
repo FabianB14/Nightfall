@@ -100,15 +100,18 @@ export function LordToken({
   highlight?: boolean;
   onClick?: () => void;
 }) {
+  const wards = lord.wards;
+  const ventsUp = lord.vents?.filter((v) => v > 0).length ?? 0;
+  const litUp = lord.staggered || (wards ? wards.exposed !== null : false);
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      aria-label={`${lord.name}, ${lord.hp} of ${lord.maxHp} HP${lord.staggered ? ', staggered' : ''}${lord.enraged ? ', enraged' : ''}`}
+      aria-label={`${lord.name}, ${lord.hp} of ${lord.maxHp} HP${lord.staggered ? ', staggered' : ''}${lord.enraged ? ', enraged' : ''}${wards ? `, ${wards.hp.filter((h) => h > 0).length} wards remain` : ''}`}
       className={[
         'flex w-28 flex-col items-center gap-0.5 rounded-md border-2 p-1.5 text-center transition',
-        lord.staggered ? 'border-lantern shadow-lantern' : 'border-eclipse',
+        litUp ? 'border-lantern shadow-lantern' : 'border-eclipse',
         lord.enraged ? 'bg-eclipse/30' : 'bg-eclipse/15',
         highlight ? 'ring-2 ring-lantern cursor-pointer hover:-translate-y-0.5' : '',
       ].join(' ')}
@@ -121,9 +124,35 @@ export function LordToken({
       <div className="text-[9px] text-muted">
         {lord.hp}/{lord.maxHp} hp
       </div>
-      <div className={`text-[9px] ${lord.staggered ? 'text-lantern' : 'text-muted'}`}>
-        {lord.staggered ? 'STAGGERED' : `☀ ${lord.light}/${lord.staggerThreshold}`}
-      </div>
+      {wards ? (
+        <>
+          {/* Eclipse Heart: Ward pips — ◆ intact, ◈ exposed, ◇ shattered. */}
+          <div className="flex gap-1 text-[11px]" aria-hidden>
+            {wards.hp.map((hp, i) => (
+              <span
+                key={i}
+                className={
+                  hp <= 0 ? 'text-muted/50' : wards.exposed === i ? 'text-lantern animate-pulse' : 'text-eclipse'
+                }
+              >
+                {hp <= 0 ? '◇' : wards.exposed === i ? '◈' : '◆'}
+              </span>
+            ))}
+          </div>
+          <div className="text-[8px] text-muted">
+            {wards.exposed === null ? 'light the arena to expose a Ward' : 'a Ward lies EXPOSED'}
+          </div>
+        </>
+      ) : (
+        <div className={`text-[9px] ${lord.staggered ? 'text-lantern' : 'text-muted'}`}>
+          {lord.staggered ? 'STAGGERED' : `☀ ${lord.light}/${lord.staggerThreshold}`}
+        </div>
+      )}
+      {lord.vents && (
+        <div className="text-[8px] text-maker">
+          {ventsUp > 0 ? `⚙ heat vents: ${ventsUp} shielding` : '⚙ vents destroyed'}
+        </div>
+      )}
     </button>
   );
 }

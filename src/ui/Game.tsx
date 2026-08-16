@@ -6,6 +6,8 @@ import { cardsById } from '@data/cards';
 import { lordsById } from '@data/lords';
 import { mutationsById } from '@data/mutations';
 import { objectivesById } from '@data/objectives';
+import { districtsById } from '@data/districts';
+import { eventsById } from '@data/events';
 import { useStore } from '@/store';
 import { Board } from './Board';
 import { Hand } from './Hand';
@@ -88,6 +90,7 @@ export function Game() {
             <div className="font-display text-lantern">Round {game.round}</div>
             <div className="text-xs uppercase tracking-widest text-muted">{game.phase} phase</div>
           </div>
+          <RunProgress game={game} />
           {objective && (
             <div className="rounded border border-cardBorder bg-surface px-3 py-1 text-xs">
               <span className="text-muted">Objective: </span>
@@ -179,9 +182,100 @@ export function Game() {
         )}
       </footer>
 
+      {game.phase === 'interlude' && <Interlude game={game} />}
+
       {(game.phase === 'won' || game.phase === 'lost') && (
         <EndOverlay won={game.phase === 'won'} onMenu={toMenu} />
       )}
+    </div>
+  );
+}
+
+/** Boss-rush progress: one moon per Lord, ending at the Eclipse Heart. */
+function RunProgress({ game }: { game: GameState }) {
+  return (
+    <ol className="flex items-center gap-1" aria-label="Run progress">
+      {game.run.lordSequence.map((lordId, i) => {
+        const isHeart = lordId === 'eclipse_heart';
+        const slain = i < game.districtIndex || (game.phase === 'won' && i <= game.districtIndex);
+        const current = i === game.districtIndex && game.phase !== 'won';
+        const name = lordsById[lordId]?.name ?? lordId;
+        return (
+          <li
+            key={lordId}
+            title={`${name}${slain ? ' — slain' : current ? ' — now' : ''}`}
+            aria-label={`${name}${slain ? ', slain' : current ? ', current' : ', ahead'}`}
+            className={[
+              'flex h-5 w-5 items-center justify-center rounded-full border text-[10px]',
+              slain
+                ? 'border-lantern bg-lantern/20 text-lantern'
+                : current
+                  ? 'border-eclipse bg-eclipse/25 text-eclipse animate-pulse'
+                  : 'border-cardBorder text-muted',
+              isHeart ? 'h-6 w-6 text-[12px]' : '',
+            ].join(' ')}
+          >
+            {isHeart ? '☀' : slain ? '✝' : '●'}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Between districts: the drawn Event and the road ahead (§6.D). */
+function Interlude({ game }: { game: GameState }) {
+  const nextDistrict = useStore((s) => s.nextDistrict);
+  const ev = game.pendingEventId ? eventsById[game.pendingEventId] : null;
+  const nextIdx = game.districtIndex + 1;
+  const nextLord = lordsById[game.run.lordSequence[nextIdx]];
+  const nextDistrictDef = districtsById[game.run.districts[nextIdx]];
+  const slainLord = lordsById[game.run.lordSequence[game.districtIndex]];
+  const finaleNext = nextLord?.id === 'eclipse_heart';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-night/90 p-4 backdrop-blur">
+      <div className="w-full max-w-md rounded-xl border border-cardBorder bg-surface p-6 text-center">
+        <div className="text-[10px] uppercase tracking-widest text-muted">District cleared</div>
+        <h2 className="mt-1 font-display text-2xl text-lantern">{slainLord?.name} has fallen</h2>
+
+        {ev && (
+          <div
+            className={[
+              'mt-4 rounded-lg border p-3 text-left',
+              ev.kind === 'boon' ? 'border-swamp/50 bg-swamp/10' : 'border-eclipse/50 bg-eclipse/10',
+            ].join(' ')}
+          >
+            <div
+              className={`text-[10px] uppercase tracking-widest ${ev.kind === 'boon' ? 'text-swamp' : 'text-eclipse'}`}
+            >
+              {ev.kind === 'boon' ? 'A boon on the road' : 'A bane on the road'}
+            </div>
+            <div className="mt-0.5 font-display text-lg text-bone">{ev.name}</div>
+            <p className="mt-1 text-xs text-muted">{ev.text}</p>
+          </div>
+        )}
+
+        <div className="mt-4 rounded-lg bg-night/60 p-3 text-left text-xs">
+          <div className="text-[10px] uppercase tracking-widest text-muted">The road ahead</div>
+          <div className="mt-1 text-bone">
+            <span className={finaleNext ? 'text-eclipse' : 'text-lantern'}>{nextDistrictDef?.name}</span>
+            <span className="text-muted"> — {finaleNext ? 'the eclipse itself waits' : 'a Lord waits'}: </span>
+            <span className="font-display">{nextLord?.name}</span>
+          </div>
+          <p className="mt-1 text-muted">
+            The downed stand back up at half strength. No rest is a full rest under a dead sun.
+          </p>
+        </div>
+
+        <button
+          onClick={nextDistrict}
+          autoFocus
+          className="mt-5 rounded-lg bg-eclipse px-6 py-2.5 font-display text-lg shadow-eclipse transition hover:brightness-110"
+        >
+          {finaleNext ? 'To the Drowned Cathedral →' : 'Press on →'}
+        </button>
+      </div>
     </div>
   );
 }
