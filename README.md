@@ -78,8 +78,10 @@ never import the SDK directly and the game keeps working if the backend is down.
 
 ## Status
 
-Implemented: scaffold, the pure engine (combat loop, surge, ultimate charge, threat deck,
-seeded run setup), all content data, and a playable single-player vertical slice (crew select →
-district → Lord, with the full Light → Stagger → Stake loop, win/lose). See `CLAUDE.md` §12 for
-the remaining milestones (full boss-rush to the Eclipse Heart, deck builder + unlocks, backend,
-polish).
+Implemented (M0–M9, M11): scaffold, the pure engine (combat loop, surge, ultimate charge,
+threat deck, seeded run setup), all content data, audio, and the **full single-player boss-rush**:
+crew select → districts → Lords (with runtime mutations) → between-district Events → the
+**Eclipse Heart** finale with rotating Wards that remix the gimmicks of the Lords you faced.
+Deck builder, unlocks and run progression persist in `localStorage`; motion is gated on
+`prefers-reduced-motion`, and the board is keyboard-playable. The remaining milestone is the
+optional Supabase backend (M10 — accounts + cloud sync, see above).

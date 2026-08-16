@@ -1,6 +1,7 @@
 // The play screen — wires engine ↔ store ↔ UI for the vertical slice (§ M6).
 // Turn flow, targeting, the board, hand, log, and win/lose overlays.
 import { useMemo } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import type { GameState, TargetRef } from '@engine/types';
 import { cardsById } from '@data/cards';
 import { lordsById } from '@data/lords';
@@ -210,7 +211,7 @@ function RunProgress({ game }: { game: GameState }) {
               slain
                 ? 'border-lantern bg-lantern/20 text-lantern'
                 : current
-                  ? 'border-eclipse bg-eclipse/25 text-eclipse animate-pulse'
+                  ? 'border-eclipse bg-eclipse/25 text-eclipse motion-safe:animate-pulse'
                   : 'border-cardBorder text-muted',
               isHeart ? 'h-6 w-6 text-[12px]' : '',
             ].join(' ')}
@@ -233,9 +234,22 @@ function Interlude({ game }: { game: GameState }) {
   const slainLord = lordsById[game.run.lordSequence[game.districtIndex]];
   const finaleNext = nextLord?.id === 'eclipse_heart';
 
+  const reduced = useReducedMotion();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-night/90 p-4 backdrop-blur">
-      <div className="w-full max-w-md rounded-xl border border-cardBorder bg-surface p-6 text-center">
+    <motion.div
+      initial={reduced ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-night/90 p-4 backdrop-blur"
+    >
+      <motion.div
+        initial={reduced ? false : { scale: 0.92, y: 16, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 24 }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="District cleared"
+        className="w-full max-w-md rounded-xl border border-cardBorder bg-surface p-6 text-center"
+      >
         <div className="text-[10px] uppercase tracking-widest text-muted">District cleared</div>
         <h2 className="mt-1 font-display text-2xl text-lantern">{slainLord?.name} has fallen</h2>
 
@@ -275,15 +289,44 @@ function Interlude({ game }: { game: GameState }) {
         >
           {finaleNext ? 'To the Drowned Cathedral →' : 'Press on →'}
         </button>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
 function EndOverlay({ won, onMenu }: { won: boolean; onMenu: () => void }) {
+  const reduced = useReducedMotion();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-night/85 backdrop-blur">
-      <div className="rounded-xl border border-cardBorder bg-surface p-8 text-center">
+    <motion.div
+      initial={reduced ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-night/85 backdrop-blur"
+    >
+      {/* Dawn breaking (or the dark closing in) washes over the screen. */}
+      {!reduced && (
+        <motion.div
+          aria-hidden
+          initial={{ opacity: 0 }}
+          animate={{ opacity: won ? 0.35 : 0.25 }}
+          transition={{ duration: 1.6 }}
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: won
+              ? 'radial-gradient(circle at 50% 100%, rgba(242,185,92,0.8), transparent 60%)'
+              : 'radial-gradient(circle at 50% 0%, rgba(194,54,47,0.8), transparent 60%)',
+          }}
+        />
+      )}
+      <motion.div
+        initial={reduced ? false : { scale: 0.9, y: 20, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 22, delay: reduced ? 0 : 0.2 }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={won ? 'Victory' : 'Defeat'}
+        className="relative rounded-xl border border-cardBorder bg-surface p-8 text-center"
+      >
         <h2 className={`font-display text-4xl ${won ? 'text-lantern' : 'text-eclipse'}`}>
           {won ? 'Dawn Breaks' : 'The Dark Wins'}
         </h2>
@@ -292,11 +335,12 @@ function EndOverlay({ won, onMenu }: { won: boolean; onMenu: () => void }) {
         </p>
         <button
           onClick={onMenu}
+          autoFocus
           className="mt-5 rounded bg-lantern px-5 py-2 font-semibold text-night"
         >
           Return to the Crossroads
         </button>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

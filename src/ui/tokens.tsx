@@ -1,6 +1,22 @@
 // Small board tokens for hunters, enemies, the Lord, gadgets and summons.
+import { motion, useReducedMotion } from 'framer-motion';
 import type { EnemyState, HunterState, LordState, GadgetState, SummonState } from '@engine/types';
 import { archetypeColors } from '@/theme/tokens';
+
+/** The light-pushing-back-dark moment: STAGGERED flares in when the threshold fills. */
+function StaggerFlash({ label = 'STAGGERED' }: { label?: string }) {
+  const reduced = useReducedMotion();
+  return (
+    <motion.span
+      initial={reduced ? false : { scale: 1.8, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 500, damping: 18 }}
+      className="inline-block text-lantern"
+    >
+      {label}
+    </motion.span>
+  );
+}
 
 function Bar({ value, max, color }: { value: number; max: number; color: string }) {
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
@@ -32,7 +48,7 @@ export function HunterToken({
       className={[
         'flex w-20 flex-col items-center gap-0.5 rounded-md border p-1 text-center transition',
         active ? 'border-lantern shadow-lantern' : 'border-cardBorder',
-        highlight ? 'ring-2 ring-swamp animate-pulse' : '',
+        highlight ? 'ring-2 ring-swamp motion-safe:animate-pulse' : '',
         hunter.downed ? 'opacity-40 grayscale' : '',
         onClick ? 'cursor-pointer hover:-translate-y-0.5' : '',
       ].join(' ')}
@@ -83,7 +99,7 @@ export function EnemyToken({
       <div className="text-[8px] text-muted">{enemy.hp} hp</div>
       {st !== null && (
         <div className={`text-[8px] ${enemy.staggered ? 'text-lantern' : 'text-muted'}`}>
-          {enemy.staggered ? 'STAGGERED' : `☀ ${enemy.light}/${st}`}
+          {enemy.staggered ? <StaggerFlash /> : `☀ ${enemy.light}/${st}`}
         </div>
       )}
       {enemy.mark && <div className="text-[8px] text-conjurer">hexed</div>}
@@ -132,7 +148,11 @@ export function LordToken({
               <span
                 key={i}
                 className={
-                  hp <= 0 ? 'text-muted/50' : wards.exposed === i ? 'text-lantern animate-pulse' : 'text-eclipse'
+                  hp <= 0
+                    ? 'text-muted/50'
+                    : wards.exposed === i
+                      ? 'text-lantern motion-safe:animate-pulse'
+                      : 'text-eclipse'
                 }
               >
                 {hp <= 0 ? '◇' : wards.exposed === i ? '◈' : '◆'}
@@ -145,7 +165,7 @@ export function LordToken({
         </>
       ) : (
         <div className={`text-[9px] ${lord.staggered ? 'text-lantern' : 'text-muted'}`}>
-          {lord.staggered ? 'STAGGERED' : `☀ ${lord.light}/${lord.staggerThreshold}`}
+          {lord.staggered ? <StaggerFlash /> : `☀ ${lord.light}/${lord.staggerThreshold}`}
         </div>
       )}
       {lord.vents && (

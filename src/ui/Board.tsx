@@ -57,11 +57,30 @@ export function Board(props: BoardProps) {
           <div
             key={zone.id}
             onClick={clickable ? () => onZoneClick?.(zone.id) : undefined}
+            onKeyDown={
+              clickable
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onZoneClick?.(zone.id);
+                    }
+                  }
+                : undefined
+            }
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            aria-label={
+              clickable
+                ? `${zone.name}, ${zone.terrain}${canMove ? ', move here' : ''}${canTarget ? ', target this zone' : ''}`
+                : undefined
+            }
             className={[
               'relative min-h-[150px] rounded-lg border p-2 transition',
               TERRAIN_STYLE[zone.terrain],
               activeZone === zone.id ? 'outline outline-1 outline-lantern/50' : '',
-              clickable ? 'cursor-pointer ring-2 ring-swamp/70 hover:ring-swamp' : '',
+              clickable
+                ? 'cursor-pointer ring-2 ring-swamp/70 hover:ring-swamp focus-visible:ring-lantern focus-visible:outline-none'
+                : '',
             ].join(' ')}
           >
             <div className="mb-1 flex items-center justify-between">

@@ -8,7 +8,11 @@ export function BloodmoonTrack({ value, max }: Props) {
   const pct = Math.min(100, (value / max) * 100);
   return (
     <div className="flex items-center gap-3" aria-label={`Bloodmoon ${value} of ${max}`}>
-      <div className="relative h-12 w-12 rounded-full overflow-hidden border border-eclipse/60 bg-night">
+      <div
+        className={`relative h-12 w-12 rounded-full overflow-hidden border border-eclipse/60 bg-night ${
+          value >= max - 2 ? 'motion-safe:animate-pulse' : ''
+        }`}
+      >
         <div
           className="absolute bottom-0 left-0 w-full bg-eclipse transition-[height] duration-500"
           style={{ height: `${pct}%`, boxShadow: '0 0 18px 2px rgba(194,54,47,0.6)' }}
