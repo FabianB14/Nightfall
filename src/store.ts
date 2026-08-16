@@ -6,19 +6,32 @@ import type { Action, GameState, TargetRef } from '@engine/types';
 import { createGame, createRunConfig, applyAction, beginRun } from '@engine/index';
 import { cardsById } from '@data/cards';
 import { audio } from './audio/audio';
+import {
+  loadProgress,
+  saveProgress,
+  loadDecks,
+  saveDecks,
+  type PlayerProgress,
+  type SavedDeck,
+} from './services/progress';
 
-export type Screen = 'title' | 'crew' | 'play';
+export type Screen = 'title' | 'crew' | 'decks' | 'play';
 
 interface Store {
   screen: Screen;
   game: GameState | null;
   selectedCard: string | null;
   hoveredCard: string | null;
+  progress: PlayerProgress;
+  decks: SavedDeck[];
 
   goTitle: () => void;
   goCrew: () => void;
-  newRun: (seed: string, crew: string[], lordCount?: number) => void;
+  goDecks: () => void;
+  newRun: (seed: string, crew: string[], lordCount?: number, deckByChar?: Record<string, string[]>) => void;
   toMenu: () => void;
+  saveDeck: (deck: SavedDeck) => void;
+  deleteDeck: (deckId: string) => void;
   dispatch: (action: Action) => void;
   selectCard: (cardId: string | null) => void;
   setHovered: (cardId: string | null) => void;
@@ -48,6 +61,8 @@ export const useStore = create<Store>((set, get) => ({
   game: null,
   selectedCard: null,
   hoveredCard: null,
+  progress: loadProgress(),
+  decks: loadDecks(),
 
   goTitle: () => {
     audio.playMusic('menu');
@@ -59,11 +74,30 @@ export const useStore = create<Store>((set, get) => ({
     set({ screen: 'crew', game: null, selectedCard: null });
   },
 
-  newRun: (seed, crew, lordCount = 3) => {
-    const run = createRunConfig({ seed, crew, lordCount });
+  goDecks: () => {
+    audio.playMusic('menu');
+    set({ screen: 'decks', game: null, selectedCard: null });
+  },
+
+  newRun: (seed, crew, lordCount = 3, deckByChar) => {
+    const run = createRunConfig({ seed, crew, lordCount, decks: deckByChar });
     const game = beginRun(createGame(seed, run));
+    const progress = { ...get().progress, runs: get().progress.runs + 1 };
+    saveProgress(progress);
     audio.playMusic(game.activeLord ? 'boss' : 'combat');
-    set({ screen: 'play', game, selectedCard: null });
+    set({ screen: 'play', game, selectedCard: null, progress });
+  },
+
+  saveDeck: (deck) => {
+    const decks = [...get().decks.filter((d) => d.id !== deck.id), deck];
+    saveDecks(decks);
+    set({ decks });
+  },
+
+  deleteDeck: (deckId) => {
+    const decks = get().decks.filter((d) => d.id !== deckId);
+    saveDecks(decks);
+    set({ decks });
   },
 
   toMenu: () => {
@@ -76,6 +110,23 @@ export const useStore = create<Store>((set, get) => ({
     if (!before) return;
     const after = applyAction(before, action);
     reactAudio(before, after);
+
+    // Progression: a Lord death moves the run to the interlude (or 'won' for the Heart).
+    const lordFell =
+      before.activeLord !== null &&
+      before.phase !== 'interlude' &&
+      (after.phase === 'interlude' || after.phase === 'won');
+    if (lordFell) {
+      const progress = {
+        ...get().progress,
+        lordKills: get().progress.lordKills + 1,
+        wins: get().progress.wins + (after.phase === 'won' ? 1 : 0),
+      };
+      saveProgress(progress);
+      set({ game: after, selectedCard: null, progress });
+      return;
+    }
+
     set({ game: after, selectedCard: null });
   },
 

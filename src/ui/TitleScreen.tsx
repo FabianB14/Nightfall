@@ -6,6 +6,8 @@ import { SettingsButton } from './Settings';
 
 export function TitleScreen() {
   const goCrew = useStore((s) => s.goCrew);
+  const goDecks = useStore((s) => s.goDecks);
+  const progress = useStore((s) => s.progress);
   const [rules, setRules] = useState(false);
 
   return (
@@ -50,6 +52,12 @@ export function TitleScreen() {
               How to Play
             </button>
             <button
+              onClick={goDecks}
+              className="rounded-lg border border-cardBorder px-5 py-2 text-sm text-muted hover:text-bone"
+            >
+              Deck Builder
+            </button>
+            <button
               disabled
               title="Saved runs arrive with accounts (see roadmap)"
               className="rounded-lg border border-cardBorder px-5 py-2 text-sm text-muted/40"
@@ -58,6 +66,13 @@ export function TitleScreen() {
             </button>
           </div>
         </div>
+
+        {progress.lordKills > 0 && (
+          <div className="mt-8 text-[11px] text-muted">
+            Lords slain: <span className="text-lantern">{progress.lordKills}</span> · Dawns brought:{' '}
+            <span className="text-lantern">{progress.wins}</span>
+          </div>
+        )}
 
         <div className="mt-12 text-[11px] text-muted/60">
           Fill a vampire&apos;s Stagger with <span className="text-lantern">Light</span>, then{' '}

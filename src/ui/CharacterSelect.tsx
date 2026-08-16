@@ -6,6 +6,7 @@ import { archetypes } from '@data/archetypes';
 import { cardsById } from '@data/cards';
 import { archetypeColors } from '@/theme/tokens';
 import { useStore } from '@/store';
+import { isUnlocked, unlockText, validateDeck } from '@/services/progress';
 import { Portrait } from './Portrait';
 import { Card } from './Card';
 import { SettingsButton } from './Settings';
@@ -18,22 +19,46 @@ function randomSeed(): string {
 
 export function CharacterSelect() {
   const goTitle = useStore((s) => s.goTitle);
+  const goDecks = useStore((s) => s.goDecks);
   const newRun = useStore((s) => s.newRun);
+  const progress = useStore((s) => s.progress);
+  const savedDecks = useStore((s) => s.decks);
 
   const [crew, setCrew] = useState<string[]>(['trapper']);
   const [focusId, setFocusId] = useState<string>('trapper');
   const [seed, setSeed] = useState(randomSeed());
   const [lordCount, setLordCount] = useState(3);
+  // Chosen saved deck per crew member ('' = the character's standard kit).
+  const [deckChoice, setDeckChoice] = useState<Record<string, string>>({});
 
   const focus = useMemo(() => characters.find((c) => c.id === focusId)!, [focusId]);
   const focusArch = archetypeById[focus.archetype];
 
   function toggle(id: string) {
+    const ch = characters.find((c) => c.id === id);
+    if (ch && !isUnlocked(ch.unlock, progress)) return; // locked content can't join the coven
     setCrew((cur) => {
       if (cur.includes(id)) return cur.filter((x) => x !== id);
       if (cur.length >= 4) return cur;
       return [...cur, id];
     });
+  }
+
+  /** Saved decks that are valid for this character under current unlocks. */
+  function decksFor(characterId: string) {
+    return savedDecks.filter(
+      (d) => d.characterId === characterId && validateDeck(d, progress).length === 0,
+    );
+  }
+
+  function launch() {
+    const deckByChar: Record<string, string[]> = {};
+    for (const id of crew) {
+      const deckId = deckChoice[id];
+      const deck = deckId ? savedDecks.find((d) => d.id === deckId) : undefined;
+      if (deck && validateDeck(deck, progress).length === 0) deckByChar[id] = deck.cardIds;
+    }
+    newRun(seed, crew, lordCount, Object.keys(deckByChar).length ? deckByChar : undefined);
   }
 
   return (
@@ -45,7 +70,15 @@ export function CharacterSelect() {
             ← Title
           </button>
           <h1 className="font-display text-2xl text-lantern sm:text-3xl">Assemble your coven</h1>
-          <SettingsButton />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goDecks}
+              className="rounded border border-cardBorder px-3 py-1.5 text-sm text-muted hover:text-bone"
+            >
+              Deck Builder
+            </button>
+            <SettingsButton />
+          </div>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
@@ -55,7 +88,7 @@ export function CharacterSelect() {
               const selected = crew.includes(ch.id);
               const focused = focusId === ch.id;
               const color = archetypeColors[ch.archetype];
-              const locked = ch.unlock && ch.unlock.kind !== 'starter';
+              const locked = !isUnlocked(ch.unlock, progress);
               return (
                 <div
                   key={ch.id}
@@ -64,6 +97,7 @@ export function CharacterSelect() {
                     'flex cursor-pointer flex-col rounded-lg border bg-surface/80 p-3 transition',
                     focused ? 'ring-1 ring-lantern' : '',
                     selected ? 'border-lantern' : 'border-cardBorder',
+                    locked ? 'opacity-60 grayscale' : '',
                   ].join(' ')}
                   style={selected ? { boxShadow: `0 0 14px -4px ${color}` } : undefined}
                 >
@@ -83,9 +117,7 @@ export function CharacterSelect() {
 
                   {locked && (
                     <div className="mt-1 text-[9px] text-eclipse/90">
-                      {ch.unlock?.kind === 'progression'
-                        ? `Unlocks after ${ch.unlock.afterLordKills} Lord kills`
-                        : 'Locked'}
+                      🔒 {unlockText(ch.unlock)} ({progress.lordKills} so far)
                     </div>
                   )}
 
@@ -94,12 +126,17 @@ export function CharacterSelect() {
                       e.stopPropagation();
                       toggle(ch.id);
                     }}
+                    disabled={locked}
                     className={[
                       'mt-2 rounded py-1 text-xs font-semibold transition',
-                      selected ? 'bg-lantern text-night' : 'border border-cardBorder text-muted hover:text-bone',
+                      locked
+                        ? 'border border-cardBorder text-muted/50 cursor-not-allowed'
+                        : selected
+                          ? 'bg-lantern text-night'
+                          : 'border border-cardBorder text-muted hover:text-bone',
                     ].join(' ')}
                   >
-                    {selected ? '✓ In coven' : crew.length >= 4 ? 'Coven full' : '+ Add'}
+                    {locked ? 'Locked' : selected ? '✓ In coven' : crew.length >= 4 ? 'Coven full' : '+ Add'}
                   </button>
                 </div>
               );
@@ -151,6 +188,7 @@ export function CharacterSelect() {
               {crew.map((id) => {
                 const ch = characters.find((c) => c.id === id)!;
                 const color = archetypeColors[ch.archetype];
+                const options = decksFor(id);
                 return (
                   <span
                     key={id}
@@ -159,6 +197,21 @@ export function CharacterSelect() {
                   >
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
                     {ch.name.replace(/^(The |Père |Sister |Mama )/, '')}
+                    {options.length > 0 && (
+                      <select
+                        value={deckChoice[id] ?? ''}
+                        onChange={(e) => setDeckChoice((c) => ({ ...c, [id]: e.target.value }))}
+                        aria-label={`Deck for ${ch.name}`}
+                        className="ml-1 rounded border border-cardBorder bg-night px-1 py-0.5 text-[10px] text-muted"
+                      >
+                        <option value="">standard kit</option>
+                        {options.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <button onClick={() => toggle(id)} className="ml-1 text-muted hover:text-eclipse" aria-label={`Remove ${ch.name}`}>
                       ×
                     </button>
@@ -207,7 +260,7 @@ export function CharacterSelect() {
 
             <button
               disabled={crew.length === 0}
-              onClick={() => newRun(seed, crew, lordCount)}
+              onClick={launch}
               className="rounded-lg bg-eclipse px-7 py-3 font-display text-lg shadow-eclipse transition hover:brightness-110 disabled:opacity-40"
             >
               Into the Dark →
